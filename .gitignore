@@ -1,0 +1,20 @@
+#env files
+.env
+
+# Claude Code
+.claude/
+
+# Assignment files
+AI Support Engineer Assignment_Csfirst-Cognition.pdf
+github_repo_analyzer_prompt.txt
+
+# Python
+__pycache__/
+*.pyc
+*.db
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
