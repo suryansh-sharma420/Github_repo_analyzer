@@ -208,6 +208,23 @@ async def get_history():
     
     return {"history": history}
 
+@app.delete("/repo/{owner}/{repo}")
+async def delete_repo(owner: str, repo: str):
+    """Delete a cached repository by owner and repo name."""
+    repo_url = f"https://github.com/{owner}/{repo}"
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM repo_cache WHERE repo_url = ?", (repo_url,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Repository not found in cache")
+
+    return {"deleted": True}
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}

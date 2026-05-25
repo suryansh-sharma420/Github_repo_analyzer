@@ -223,6 +223,9 @@ success (with conftest.py fixes for database isolation)
 - [x] Sidebar filters history items with null metadata.name
 - [x] App.jsx handleLoadHistory checks for data.metadata existence, throws error if missing
 - [x] App.jsx handleAnalyze and handleLoadHistory call setError(null) on success
+- [x] DELETE /repo/{owner}/{repo} backend endpoint to remove cached repos from SQLite
+- [x] Trash icon button on each history item in Sidebar (calls DELETE, removes from UI immediately)
+- [x] Scrollable sidebar history list with overflow-hidden on sidebar and overflow-y-auto on history section
 ### Manual Changes Made
 - None
 ### Notes

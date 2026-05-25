@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, History } from 'lucide-react';
+import { Search, History, Trash2 } from 'lucide-react';
 
 export default function Sidebar({ onAnalyze, onLoadHistory }) {
   const [url, setUrl] = useState('');
@@ -31,8 +31,23 @@ export default function Sidebar({ onAnalyze, onLoadHistory }) {
     onLoadHistory(repoUrl);
   };
 
+  const handleDelete = async (e, repoUrl) => {
+    e.stopPropagation();
+    try {
+      const [owner, repo] = repoUrl.split('/').slice(-2);
+      const response = await fetch(`http://localhost:8000/repo/${owner}/${repo}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setHistory((prev) => prev.filter((item) => item.repo_url !== repoUrl));
+      }
+    } catch (error) {
+      console.error('Failed to delete repo:', error);
+    }
+  };
+
   return (
-    <div className="w-[280px] h-screen bg-gray-900 text-white flex flex-col fixed left-0 top-0">
+    <div className="w-[280px] h-screen bg-gray-900 text-white flex flex-col fixed left-0 top-0 overflow-hidden">
       {/* Header */}
       <div className="p-6 border-b border-gray-700">
         <h1 className="text-2xl font-bold text-white">GitAnalyze</h1>
@@ -75,18 +90,29 @@ export default function Sidebar({ onAnalyze, onLoadHistory }) {
               history
                 .filter((item) => item.data?.metadata?.name)
                 .map((item, index) => (
-                  <button
+                  <div
                     key={index}
-                    onClick={() => handleHistoryClick(item.repo_url)}
-                    className="w-full text-left p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors group"
+                    className="flex items-center gap-2"
                   >
-                    <div className="text-sm font-medium text-white group-hover:text-blue-400 truncate">
-                      {item.data.metadata.name}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1 truncate">
-                      {item.repo_url}
-                    </div>
-                  </button>
+                    <button
+                      onClick={() => handleHistoryClick(item.repo_url)}
+                      className="flex-1 text-left p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors group min-w-0"
+                    >
+                      <div className="text-sm font-medium text-white group-hover:text-blue-400 truncate">
+                        {item.data.metadata.name}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1 truncate">
+                        {item.repo_url}
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => handleDelete(e, item.repo_url)}
+                      className="p-2 text-gray-500 hover:text-red-400 transition-colors shrink-0"
+                      title="Delete from history"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 ))
             )}
           </div>
