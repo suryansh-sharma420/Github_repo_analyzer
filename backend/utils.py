@@ -4,24 +4,49 @@ from typing import Optional, List, Dict, Any, Tuple
 from fastapi import HTTPException
 
 
+# Fully anchored matcher for a canonical GitHub repository URL. Owner and repo
+# are restricted to GitHub's naming charset so that user input cannot smuggle
+# query strings, fragments, path traversal, or control characters into the
+# outbound api.github.com request or the cache key.
+_GITHUB_URL_RE = re.compile(
+    r"https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?"
+)
+
+
 def parse_github_url(url: str) -> Tuple[str, str]:
-    """Parse owner and repo from GitHub URL.
-    
+    """Parse and validate owner/repo from a GitHub URL.
+
     Args:
         url: GitHub repository URL
-        
+
     Returns:
         Tuple of (owner, repo)
-        
+
     Raises:
         ValueError: If URL format is invalid
     """
-    pattern = r"https://github\.com/([^/]+)/([^/]+)"
-    match = re.match(pattern, url)
+    if not isinstance(url, str):
+        raise ValueError("Invalid GitHub URL format")
+
+    match = _GITHUB_URL_RE.fullmatch(url.strip())
     if not match:
         raise ValueError("Invalid GitHub URL format")
+
     owner, repo = match.groups()
+    # Reject path-traversal-style segments that the charset alone would allow.
+    if owner in (".", "..") or repo in (".", ".."):
+        raise ValueError("Invalid GitHub URL format")
+
     return owner, repo
+
+
+def build_repo_url(owner: str, repo: str) -> str:
+    """Build the canonical https://github.com/<owner>/<repo> URL.
+
+    Using this for both the outbound fetch and the cache key guarantees the
+    write path and the read path always agree (no cache-key confusion).
+    """
+    return f"https://github.com/{owner}/{repo}"
 
 
 def is_cache_valid(fetched_at_str: str, ttl_hours: int) -> bool:
