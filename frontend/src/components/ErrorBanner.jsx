@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, AlertTriangle } from 'lucide-react';
 
 const ErrorBanner = ({ error, onDismiss }) => {
   if (!error) return null;
@@ -28,17 +28,20 @@ const ErrorBanner = ({ error, onDismiss }) => {
   const rateLimitReset = isErrorType('429') ? error.match(/resets at (.+)/i)?.[1] : null;
 
   return (
-    <div className={`${bgColor} ${borderColor} ${textColor} border px-4 py-3 rounded-lg mb-6 relative`}>
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="font-medium">{error}</p>
-          {rateLimitReset && (
-            <p className="text-sm mt-1 opacity-90">Rate limit resets at {rateLimitReset}</p>
-          )}
+    <div className={`${bgColor} ${borderColor} ${textColor} border px-4 py-3 rounded-xl shadow-card mb-6 relative`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">{error}</p>
+            {rateLimitReset && (
+              <p className="text-sm mt-1 opacity-90">Rate limit resets at {rateLimitReset}</p>
+            )}
+          </div>
         </div>
         <button
           onClick={onDismiss}
-          className="ml-4 hover:opacity-70 transition-opacity"
+          className="hover:opacity-70 transition-opacity shrink-0"
           aria-label="Dismiss error"
         >
           <X size={18} />

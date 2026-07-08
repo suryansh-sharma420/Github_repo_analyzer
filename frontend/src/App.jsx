@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Github, Sparkles } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import MetadataCard from './components/MetadataCard';
 import ContributorsTable from './components/ContributorsTable';
@@ -6,9 +7,11 @@ import CommitChart from './components/CommitChart';
 import MetricCards from './components/MetricCards';
 import ErrorBanner from './components/ErrorBanner';
 import { MetadataSkeleton, ContributorsSkeleton, ChartSkeleton, MetricSkeleton } from './components/Skeleton';
+import { apiUrl } from './api';
 
 function App() {
   const [repoData, setRepoData] = useState(null);
+  const [repoUrl, setRepoUrl] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -16,7 +19,7 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/analyze', {
+      const response = await fetch(apiUrl('/analyze'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -28,6 +31,7 @@ function App() {
         throw new Error(data.detail || 'Failed to analyze repository');
       }
       setRepoData(data.data);
+      setRepoUrl(url);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -40,20 +44,21 @@ function App() {
     setError(null);
   };
 
-  const handleLoadHistory = async (repoUrl) => {
+  const handleLoadHistory = async (histUrl) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`http://localhost:8000/repo/${repoUrl.split('/').slice(-2).join('/')}`);
+      const ownerRepo = histUrl.split('/').slice(-2).join('/');
+      const response = await fetch(apiUrl(`/repo/${ownerRepo}`));
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to load repository');
       }
-      // Check that data.metadata exists before setting repoData
       if (!data.metadata) {
         throw new Error('This repository has incomplete data. Please re-analyze it.');
       }
       setRepoData(data);
+      setRepoUrl(histUrl);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -63,33 +68,56 @@ function App() {
   };
 
   return (
-    <div className="flex min-h-screen bg-white">
-      {/* Left Sidebar */}
+    <div className="flex min-h-screen bg-slate-100 bg-gradient-to-br from-slate-100 via-slate-50 to-brand-50">
       <Sidebar onAnalyze={handleAnalyze} onLoadHistory={handleLoadHistory} />
 
-      {/* Right Main Panel */}
-      <div className="flex-1 ml-[280px] p-8">
+      <div className="flex-1 ml-[280px] p-6 lg:p-10">
+        {/* Top header bar */}
+        <header className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              Repository Insights
+            </h1>
+            <p className="text-slate-500 text-sm mt-1">
+              Metadata, contributors, and commit activity at a glance
+            </p>
+          </div>
+          {repoUrl && (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white shadow-card text-sm font-medium text-slate-700 hover:text-brand-600 transition-colors"
+            >
+              <Github className="w-4 h-4" />
+              View on GitHub
+            </a>
+          )}
+        </header>
+
         {error && <ErrorBanner error={error} onDismiss={handleDismissError} />}
 
         {!loading && !repoData && !error && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-600 text-lg">Enter a GitHub URL to analyze</p>
+          <div className="flex flex-col items-center justify-center text-center py-24 animate-fade-in-up">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-glow flex items-center justify-center mb-6">
+              <Sparkles className="w-10 h-10 text-white" />
+            </div>
+            <h2 className="text-xl font-semibold text-slate-800">Analyze a GitHub repository</h2>
+            <p className="text-slate-500 mt-2 max-w-md">
+              Paste a repository URL in the sidebar to explore stars, forks, top
+              contributors, and commit trends.
+            </p>
           </div>
         )}
 
         {loading && (
-          <div>
-            {/* 1. Metadata Card Skeleton */}
+          <div className="space-y-6">
             <MetadataSkeleton />
-
-            {/* 2. Middle Row Skeleton */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <ContributorsSkeleton />
               <ChartSkeleton />
             </div>
-
-            {/* 3. Metric Cards Row Skeleton */}
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               <MetricSkeleton />
               <MetricSkeleton />
               <MetricSkeleton />
@@ -98,18 +126,13 @@ function App() {
         )}
 
         {repoData && !loading && (
-          <div>
-            {/* 1. Metadata Card */}
-            <MetadataCard metadata={repoData.metadata} />
-
-            {/* 2. Middle Row */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
+          <div className="space-y-6 animate-fade-in-up">
+            <MetadataCard metadata={repoData.metadata} repoUrl={repoUrl} />
+            <MetricCards commitActivity={repoData.commit_activity} contributors={repoData.contributors} />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <ContributorsTable contributors={repoData.contributors} />
               <CommitChart commitActivity={repoData.commit_activity} />
             </div>
-
-            {/* 3. Metric Cards Row */}
-            <MetricCards commitActivity={repoData.commit_activity} />
           </div>
         )}
       </div>

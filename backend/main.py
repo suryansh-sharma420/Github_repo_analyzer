@@ -1,32 +1,77 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
 import sqlite3
 import json
 import os
+import hmac
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Optional, List, Dict, Any
-from utils import parse_github_url, is_cache_valid, shape_metadata, shape_contributors, shape_commit_activity
+from utils import (
+    parse_github_url,
+    build_repo_url,
+    is_cache_valid,
+    shape_metadata,
+    shape_contributors,
+    shape_commit_activity,
+)
+from ratelimit import SlidingWindowRateLimiter, client_key
 
 # Load environment variables
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("repo_analyzer")
+
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "1"))
 
+# Security / abuse-mitigation configuration (all overridable via env).
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+MAX_CACHE_ROWS = int(os.getenv("MAX_CACHE_ROWS", "500"))
+COMMIT_ACTIVITY_RETRY_DELAY = float(os.getenv("COMMIT_ACTIVITY_RETRY_DELAY", "2.0"))
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+
 app = FastAPI(title="GitHub Repo Analyzer")
 
-# CORS middleware allowing localhost:3000
+# CORS: restrict to a configurable allowlist of origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+rate_limiter = SlidingWindowRateLimiter(RATE_LIMIT_PER_MINUTE)
+
+
+def enforce_rate_limit(request: Request) -> None:
+    """Per-client rate limit dependency for abuse-prone endpoints."""
+    rate_limiter.check(client_key(request))
+
+
+def require_admin(request: Request) -> None:
+    """Gate state-changing endpoints behind an optional admin API key.
+
+    When ``ADMIN_API_KEY`` is configured, callers must present a matching
+    ``X-API-Key`` header. When it is unset the endpoint stays open (preserving
+    existing behaviour) but a warning is logged so operators know it is exposed.
+    """
+    if not ADMIN_API_KEY:
+        return
+    provided = request.headers.get("x-api-key", "")
+    if not provided or not hmac.compare_digest(provided, ADMIN_API_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 # Database setup
 DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "db", "repo_cache.db"))
@@ -98,7 +143,7 @@ async def fetch_github_data(owner: str, repo: str) -> Dict[str, Any]:
             
             # If status is 202 or response is empty list, retry once after 3 seconds
             if activity_response.status_code == 202 or activity_response.json() == []:
-                await asyncio.sleep(3)
+                await asyncio.sleep(COMMIT_ACTIVITY_RETRY_DELAY)
                 activity_response = await client.get(
                     f"https://api.github.com/repos/{owner}/{repo}/stats/commit_activity",
                     headers=headers
@@ -127,19 +172,26 @@ async def fetch_github_data(owner: str, repo: str) -> Dict[str, Any]:
             raise HTTPException(status_code=504, detail="GitHub API timed out")
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e))
+        except Exception:
+            logger.exception(
+                "Unexpected error fetching GitHub data for %s/%s", owner, repo
+            )
+            raise HTTPException(
+                status_code=502, detail="Failed to fetch repository data"
+            )
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(enforce_rate_limit)])
 async def analyze_repo(request: AnalyzeRequest):
     """Analyze a GitHub repository with caching."""
     try:
         owner, repo = parse_github_url(request.url)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid GitHub URL format")
-    
-    repo_url = request.url
-    
+
+    # Derive the cache key from the validated owner/repo so the write path and
+    # the read paths (GET/DELETE /repo) always agree on the canonical URL.
+    repo_url = build_repo_url(owner, repo)
+
     # Check cache
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -159,6 +211,17 @@ async def analyze_repo(request: AnalyzeRequest):
     cursor.execute(
         "INSERT OR REPLACE INTO repo_cache (repo_url, data_json, fetched_at) VALUES (?, ?, ?)",
         (repo_url, json.dumps(data), datetime.now().isoformat())
+    )
+    # Bound cache growth: keep only the newest MAX_CACHE_ROWS entries.
+    cursor.execute(
+        """
+        DELETE FROM repo_cache WHERE repo_url IN (
+            SELECT repo_url FROM repo_cache
+            ORDER BY fetched_at DESC
+            LIMIT -1 OFFSET ?
+        )
+        """,
+        (MAX_CACHE_ROWS,),
     )
     conn.commit()
     conn.close()
@@ -182,7 +245,7 @@ async def get_repo(owner: str, repo: str):
     data_json = cached[0]
     return json.loads(data_json)
 
-@app.get("/history")
+@app.get("/history", dependencies=[Depends(enforce_rate_limit)])
 async def get_history():
     """Return all cached repositories ordered by fetched_at DESC, filtering out test/empty repos."""
     conn = get_db_connection()
@@ -208,7 +271,7 @@ async def get_history():
     
     return {"history": history}
 
-@app.delete("/repo/{owner}/{repo}")
+@app.delete("/repo/{owner}/{repo}", dependencies=[Depends(require_admin)])
 async def delete_repo(owner: str, repo: str):
     """Delete a cached repository by owner and repo name."""
     repo_url = f"https://github.com/{owner}/{repo}"
@@ -233,3 +296,8 @@ async def health_check():
 async def startup_event():
     """Initialize database on startup."""
     init_db()
+    if not ADMIN_API_KEY:
+        logger.warning(
+            "ADMIN_API_KEY is not set; DELETE /repo is unauthenticated. "
+            "Set ADMIN_API_KEY to require an X-API-Key header."
+        )

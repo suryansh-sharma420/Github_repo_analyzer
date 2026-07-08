@@ -22,6 +22,20 @@ A web tool to analyze any public GitHub repository. Displays metadata, contribut
 3. Select scopes: `public_repo` (for public repositories)
 4. Copy the token and add it to your `.env` file as `GITHUB_TOKEN=your_token_here`
 
+## Configuration
+
+All backend settings are read from environment variables (see `backend/.env.example`):
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | — | GitHub token used for API requests |
+| `CACHE_TTL_HOURS` | `1` | How long cached results stay fresh |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Per-client (IP) request cap on abuse-prone endpoints; `0` disables |
+| `MAX_CACHE_ROWS` | `500` | Upper bound on cached repositories (oldest evicted past this) |
+| `COMMIT_ACTIVITY_RETRY_DELAY` | `2.0` | Seconds to wait before retrying GitHub's async commit-activity stats |
+| `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated CORS allowlist |
+| `ADMIN_API_KEY` | — | When set, `DELETE /repo` requires a matching `X-API-Key` header |
+
 ## Features
 
 - **Repository Analysis**: Fetch and display metadata, contributors, and commit activity
@@ -36,4 +50,5 @@ A web tool to analyze any public GitHub repository. Displays metadata, contribut
 - `POST /analyze` - Analyze a GitHub repository
 - `GET /repo/{owner}/{repo}` - Fetch repository from cache
 - `GET /history` - Get all cached repositories
+- `DELETE /repo/{owner}/{repo}` - Remove a repository from cache (requires `X-API-Key` when `ADMIN_API_KEY` is set)
 - `GET /health` - Health check
