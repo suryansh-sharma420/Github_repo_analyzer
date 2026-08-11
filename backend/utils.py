@@ -120,6 +120,6 @@ def shape_commit_activity(activity: List[Dict[str, Any]], weeks: int = 12) -> Li
     Returns:
         Sliced commit activity list
     """
-    if not activity:
+    if not activity or weeks <= 0:
         return []
     return activity[-weeks:]
