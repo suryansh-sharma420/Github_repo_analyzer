@@ -148,3 +148,11 @@ def test_shape_commit_activity_less_than_requested():
     shaped = shape_commit_activity(activity, weeks=12)
     
     assert len(shaped) == 5
+
+
+def test_shape_commit_activity_non_positive_weeks():
+    """Test shaping with non-positive weeks returns empty list."""
+    activity = [{"total": i, "week": i} for i in range(5)]
+
+    assert shape_commit_activity(activity, weeks=0) == []
+    assert shape_commit_activity(activity, weeks=-3) == []
